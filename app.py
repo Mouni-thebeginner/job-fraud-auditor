@@ -5,9 +5,6 @@ import os
 import requests
 
 # ================= OPTIONAL CHROMADB ================= #
-# ChromaDB often fails on Streamlit Cloud.
-# We load it ONLY if available (production-safe fallback).
-
 try:
     from chromadb import PersistentClient
     from chromadb.utils import embedding_functions
@@ -15,9 +12,15 @@ try:
 except Exception:
     CHROMA_AVAILABLE = False
 
-# ================= OCR ================= #
+# ================= OPTIONAL PDF OCR ================= #
+try:
+    from pdf2image import convert_from_bytes
+    PDF_OCR_AVAILABLE = True
+except Exception:
+    PDF_OCR_AVAILABLE = False
+
+# ================= IMAGE OCR ================= #
 from PIL import Image
-from pdf2image import convert_from_bytes
 import pytesseract
 
 # ================= ML ================= #
@@ -68,6 +71,10 @@ def extract_text_from_file(uploaded_file):
             text = pytesseract.image_to_string(image)
 
         elif uploaded_file.type == "application/pdf":
+            if not PDF_OCR_AVAILABLE:
+                st.warning("⚠️ PDF OCR is not supported in cloud. Please upload an image instead.")
+                return ""
+
             images = convert_from_bytes(uploaded_file.read())
             for img in images:
                 text += pytesseract.image_to_string(img) + "\n"
@@ -104,15 +111,13 @@ def load_ml_model():
 
     return model, vectorizer
 
-# ================= RAG + LLM ================= #
+# ================= LLM ANALYSIS ================= #
 
-def analyze_with_rag_llm(job_text, prediction, collection):
+def analyze_with_llm(job_text, prediction, collection):
     verdict = "FRAUDULENT" if prediction == 1 else "REAL"
 
-    # Default fallback context
-    retrieved_context = "Vector database unavailable. Using model judgment only."
+    retrieved_context = "Vector database unavailable."
 
-    # Use ChromaDB only if available
     if collection is not None:
         results = collection.query(query_texts=[job_text], n_results=2)
         retrieved_context = "\n---\n".join(results["documents"][0])
@@ -148,27 +153,23 @@ Give 3 clear reasons explaining whether this job follows scam patterns.
 
 # ================= STREAMLIT UI ================= #
 
-st.set_page_config(
-    page_title="AI Job Fraud Auditor",
-    layout="wide"
-)
-
+st.set_page_config(page_title="AI Job Fraud Auditor", layout="wide")
 st.title("🛡️ AI Job Fraud Auditor (ML + LLM + OCR)")
+
+if not GROQ_API_KEY:
+    st.error("❌ GROQ_API_KEY missing. Add it in Manage App → Secrets.")
+    st.stop()
 
 with st.spinner("Initializing systems..."):
     vector_db = init_vector_db()
     ml_model, tfidf = load_ml_model()
-
-if not GROQ_API_KEY:
-    st.error("❌ GROQ_API_KEY not found. Add it in Streamlit → Manage App → Secrets")
-    st.stop()
 
 col1, col2 = st.columns(2)
 
 with col1:
     st.subheader("Input Job Data")
 
-    mode = st.radio("Choose input method", ["Paste Text", "Upload PDF / Image"])
+    mode = st.radio("Choose input method", ["Paste Text", "Upload Image / PDF"])
     final_text = ""
 
     if mode == "Paste Text":
@@ -180,7 +181,8 @@ with col1:
         )
         if file:
             final_text = extract_text_from_file(file)
-            st.success("Text extracted successfully!")
+            if final_text:
+                st.success("Text extracted successfully!")
 
 if st.button("🚀 Run Analysis", type="primary"):
     if final_text.strip():
@@ -197,11 +199,11 @@ if st.button("🚀 Run Analysis", type="primary"):
                 st.success("### ✅ VERDICT: PROBABLY REAL")
 
             with st.spinner("AI Analyst reasoning..."):
-                reasoning = analyze_with_rag_llm(
+                reasoning = analyze_with_llm(
                     final_text,
                     prediction,
                     vector_db
                 )
                 st.markdown(reasoning)
     else:
-        st.warning("Please provide job text or upload a file.")
+        st.warning("Please provide job text or upload an image.")
