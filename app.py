@@ -1,37 +1,35 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import re
 import os
 import requests
-import chromadb
 
+# --------- ChromaDB (FIXED IMPORT) ---------
+from chromadb import PersistentClient
 from chromadb.utils import embedding_functions
+
+# --------- OCR ---------
 from PIL import Image
 from pdf2image import convert_from_bytes
 import pytesseract
 
-# Sklearn
+# --------- ML ---------
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 
-# ---------------- CONFIGURATION ---------------- #
+# ================= CONFIG ================= #
 
-FEEDBACK_FILE = "user_feedback.csv"
 DATASET_PATH = "fake_job_postings.csv"
 
-# OCR paths (cloud ignores these safely)
-pytesseract.pytesseract.tesseract_cmd = r"/usr/bin/tesseract"
-
-# GROQ (FREE LLM)
+# Groq (FREE LLM)
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
-# ---------------- VECTOR DATABASE (RAG) ---------------- #
+# ================= VECTOR DB ================= #
 
 @st.cache_resource
 def init_vector_db():
-    client = chromadb.PersistentClient(path="./chroma_db")
+    client = PersistentClient(path="./chroma_db")
     embedding = embedding_functions.DefaultEmbeddingFunction()
 
     collection = client.get_or_create_collection(
@@ -50,11 +48,10 @@ def init_vector_db():
 
     return collection
 
-# ---------------- OCR ---------------- #
+# ================= OCR ================= #
 
 def extract_text_from_file(uploaded_file):
     text = ""
-
     try:
         if uploaded_file.type.startswith("image"):
             image = Image.open(uploaded_file)
@@ -70,16 +67,14 @@ def extract_text_from_file(uploaded_file):
 
     return text.strip()
 
-# ---------------- TEXT CLEANING ---------------- #
+# ================= TEXT CLEAN ================= #
 
 def clean_text(text):
-    if not isinstance(text, str):
-        return ""
     text = text.lower()
     text = re.sub(r"[^a-z\s]", " ", text)
     return re.sub(r"\s+", " ", text).strip()
 
-# ---------------- ML MODEL ---------------- #
+# ================= ML MODEL ================= #
 
 @st.cache_resource
 def load_ml_model():
@@ -99,7 +94,7 @@ def load_ml_model():
 
     return model, vectorizer
 
-# ---------------- RAG + LLM ---------------- #
+# ================= RAG + LLM ================= #
 
 def analyze_with_rag_llm(job_text, prediction, collection):
     results = collection.query(
@@ -122,7 +117,7 @@ NEW JOB TEXT:
 {job_text[:1000]}
 
 TASK:
-Give 3 clear reasons explaining whether this job uses scam patterns.
+Give 3 clear reasons explaining whether this job follows scam patterns.
 """
 
     headers = {
@@ -139,7 +134,7 @@ Give 3 clear reasons explaining whether this job uses scam patterns.
     response = requests.post(GROQ_URL, headers=headers, json=payload)
     return response.json()["choices"][0]["message"]["content"]
 
-# ---------------- STREAMLIT UI ---------------- #
+# ================= STREAMLIT UI ================= #
 
 st.set_page_config(
     page_title="AI Job Fraud Auditor",
@@ -155,15 +150,13 @@ with st.spinner("Initializing AI systems..."):
 col1, col2 = st.columns(2)
 
 with col1:
-    st.subheader("Input Job Information")
+    st.subheader("Input Job Data")
 
-    mode = st.radio("Choose Input Method", ["Paste Text", "Upload PDF / Image"])
-
+    mode = st.radio("Choose input method", ["Paste Text", "Upload PDF / Image"])
     final_text = ""
 
     if mode == "Paste Text":
         final_text = st.text_area("Paste job description", height=250)
-
     else:
         file = st.file_uploader(
             "Upload Image or PDF",
@@ -176,11 +169,11 @@ with col1:
 if st.button("🚀 Run RAG Analysis", type="primary"):
     if final_text.strip():
         cleaned = clean_text(final_text)
-        vector = tfidf.transform([cleaned])
-        prediction = ml_model.predict(vector)[0]
+        vec = tfidf.transform([cleaned])
+        prediction = ml_model.predict(vec)[0]
 
         with col2:
-            st.subheader("Analysis Results")
+            st.subheader("Results")
 
             if prediction == 1:
                 st.error("### ❌ VERDICT: FRAUDULENT")
@@ -194,6 +187,5 @@ if st.button("🚀 Run RAG Analysis", type="primary"):
                     vector_db
                 )
                 st.markdown(reasoning)
-
     else:
         st.warning("Please provide job text or upload a file.")
