@@ -4,16 +4,23 @@ import re
 import os
 import requests
 
-# --------- ChromaDB (FIXED IMPORT) ---------
-from chromadb import PersistentClient
-from chromadb.utils import embedding_functions
+# ================= OPTIONAL CHROMADB ================= #
+# ChromaDB often fails on Streamlit Cloud.
+# We load it ONLY if available (production-safe fallback).
 
-# --------- OCR ---------
+try:
+    from chromadb import PersistentClient
+    from chromadb.utils import embedding_functions
+    CHROMA_AVAILABLE = True
+except Exception:
+    CHROMA_AVAILABLE = False
+
+# ================= OCR ================= #
 from PIL import Image
 from pdf2image import convert_from_bytes
 import pytesseract
 
-# --------- ML ---------
+# ================= ML ================= #
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 
@@ -21,14 +28,17 @@ from sklearn.linear_model import LogisticRegression
 
 DATASET_PATH = "fake_job_postings.csv"
 
-# Groq (FREE LLM)
+# GROQ (FREE LLM)
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
-# ================= VECTOR DB ================= #
+# ================= VECTOR DB (SAFE) ================= #
 
 @st.cache_resource
 def init_vector_db():
+    if not CHROMA_AVAILABLE:
+        return None
+
     client = PersistentClient(path="./chroma_db")
     embedding = embedding_functions.DefaultEmbeddingFunction()
 
@@ -97,20 +107,22 @@ def load_ml_model():
 # ================= RAG + LLM ================= #
 
 def analyze_with_rag_llm(job_text, prediction, collection):
-    results = collection.query(
-        query_texts=[job_text],
-        n_results=2
-    )
-
-    retrieved_context = "\n---\n".join(results["documents"][0])
     verdict = "FRAUDULENT" if prediction == 1 else "REAL"
+
+    # Default fallback context
+    retrieved_context = "Vector database unavailable. Using model judgment only."
+
+    # Use ChromaDB only if available
+    if collection is not None:
+        results = collection.query(query_texts=[job_text], n_results=2)
+        retrieved_context = "\n---\n".join(results["documents"][0])
 
     prompt = f"""
 You are a cybersecurity analyst.
 
 MODEL VERDICT: {verdict}
 
-KNOWN SCAM EXAMPLES:
+REFERENCE CONTEXT:
 {retrieved_context}
 
 NEW JOB TEXT:
@@ -141,11 +153,15 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("🛡️ AI Job Fraud Auditor (ML + RAG + OCR)")
+st.title("🛡️ AI Job Fraud Auditor (ML + LLM + OCR)")
 
-with st.spinner("Initializing AI systems..."):
+with st.spinner("Initializing systems..."):
     vector_db = init_vector_db()
     ml_model, tfidf = load_ml_model()
+
+if not GROQ_API_KEY:
+    st.error("❌ GROQ_API_KEY not found. Add it in Streamlit → Manage App → Secrets")
+    st.stop()
 
 col1, col2 = st.columns(2)
 
@@ -166,7 +182,7 @@ with col1:
             final_text = extract_text_from_file(file)
             st.success("Text extracted successfully!")
 
-if st.button("🚀 Run RAG Analysis", type="primary"):
+if st.button("🚀 Run Analysis", type="primary"):
     if final_text.strip():
         cleaned = clean_text(final_text)
         vec = tfidf.transform([cleaned])
