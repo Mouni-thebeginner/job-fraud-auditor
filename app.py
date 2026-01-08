@@ -1,63 +1,52 @@
 import streamlit as st
-import pandas as pd
 import re
 import os
 import requests
 
-# ================= ML (ONLY REQUIRED PARTS) ================= #
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LogisticRegression
-
 # ================= CONFIG ================= #
 
-DATASET_PATH = "fake_job_postings.csv"
-
-# GROQ (FREE LLM)
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
-# ================= TEXT CLEAN ================= #
+# ================= SIMPLE RULE-BASED CLASSIFIER ================= #
 
-def clean_text(text):
+SCAM_KEYWORDS = [
+    "pay upfront",
+    "registration fee",
+    "processing fee",
+    "whatsapp only",
+    "telegram",
+    "earn daily",
+    "quick money",
+    "no interview",
+    "limited slots",
+    "act fast",
+    "work from home and earn",
+    "investment required",
+    "click the link",
+    "guaranteed income"
+]
+
+def rule_based_prediction(text):
     text = text.lower()
-    text = re.sub(r"[^a-z\s]", " ", text)
-    return re.sub(r"\s+", " ", text).strip()
-
-# ================= ML MODEL ================= #
-
-@st.cache_resource
-def load_ml_model():
-    df = pd.read_csv(DATASET_PATH).fillna("")
-    df["text"] = df["description"] + " " + df["requirements"]
-
-    vectorizer = TfidfVectorizer(
-        stop_words="english",
-        max_features=3000
-    )
-
-    X = vectorizer.fit_transform(df["text"].apply(clean_text))
-    y = df["fraudulent"]
-
-    model = LogisticRegression(class_weight="balanced", max_iter=1000)
-    model.fit(X, y)
-
-    return model, vectorizer
+    score = sum(1 for kw in SCAM_KEYWORDS if kw in text)
+    return 1 if score >= 2 else 0   # 1 = Fraudulent, 0 = Probably Real
 
 # ================= LLM ANALYSIS ================= #
 
 def analyze_with_llm(job_text, prediction):
-    verdict = "FRAUDULENT" if prediction == 1 else "REAL"
+    verdict = "FRAUDULENT" if prediction == 1 else "PROBABLY REAL"
 
     prompt = f"""
 You are a cybersecurity analyst.
 
-MODEL VERDICT: {verdict}
+RULE-BASED MODEL VERDICT: {verdict}
 
 JOB DESCRIPTION:
-{job_text[:1000]}
+{job_text[:1200]}
 
 TASK:
-Give 3 clear reasons explaining whether this job is fraudulent or legitimate.
+Explain in 3 clear bullet points whether this job posting shows scam patterns.
 """
 
     headers = {
@@ -77,14 +66,11 @@ Give 3 clear reasons explaining whether this job is fraudulent or legitimate.
 # ================= STREAMLIT UI ================= #
 
 st.set_page_config(page_title="AI Job Fraud Auditor", layout="wide")
-st.title("🛡️ AI Job Fraud Auditor (ML + LLM)")
+st.title("🛡️ AI Job Fraud Auditor (Cloud-Safe Demo)")
 
 if not GROQ_API_KEY:
-    st.error("❌ GROQ_API_KEY missing. Add it in Manage App → Secrets.")
+    st.error("❌ GROQ_API_KEY missing. Add it in Manage App → Settings → Secrets")
     st.stop()
-
-with st.spinner("Loading ML model..."):
-    ml_model, tfidf = load_ml_model()
 
 st.subheader("Paste Job Description")
 
@@ -95,12 +81,10 @@ job_text = st.text_area(
 
 if st.button("🚀 Run Analysis", type="primary"):
     if job_text.strip():
-        cleaned = clean_text(job_text)
-        vec = tfidf.transform([cleaned])
-        prediction = ml_model.predict(vec)[0]
+        prediction = rule_based_prediction(job_text)
 
         if prediction == 1:
-            st.error("### ❌ VERDICT: FRAUDULENT")
+            st.error("### ❌ VERDICT: LIKELY FRAUDULENT")
         else:
             st.success("### ✅ VERDICT: PROBABLY REAL")
 
