@@ -8,39 +8,40 @@ import requests
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
-# ================= SIMPLE RULE-BASED CLASSIFIER ================= #
+# ================= RULE-BASED FRAUD DETECTION ================= #
 
 SCAM_KEYWORDS = [
-    "pay upfront",
     "registration fee",
     "processing fee",
-    "whatsapp only",
-    "telegram",
+    "pay upfront",
+    "investment required",
+    "no interview",
     "earn daily",
     "quick money",
-    "no interview",
+    "guaranteed income",
     "limited slots",
     "act fast",
-    "work from home and earn",
-    "investment required",
+    "telegram",
+    "whatsapp only",
     "click the link",
-    "guaranteed income"
+    "work from home and earn",
+    "refund after payment"
 ]
 
-def rule_based_prediction(text):
+def rule_based_prediction(text: str) -> int:
     text = text.lower()
-    score = sum(1 for kw in SCAM_KEYWORDS if kw in text)
-    return 1 if score >= 2 else 0   # 1 = Fraudulent, 0 = Probably Real
+    matches = sum(1 for kw in SCAM_KEYWORDS if kw in text)
+    return 1 if matches >= 2 else 0   # 1 = Fraud, 0 = Probably Real
 
-# ================= LLM ANALYSIS ================= #
+# ================= LLM ANALYSIS (SAFE) ================= #
 
-def analyze_with_llm(job_text, prediction):
+def analyze_with_llm(job_text: str, prediction: int) -> str:
     verdict = "FRAUDULENT" if prediction == 1 else "PROBABLY REAL"
 
     prompt = f"""
 You are a cybersecurity analyst.
 
-RULE-BASED MODEL VERDICT: {verdict}
+RULE-BASED VERDICT: {verdict}
 
 JOB DESCRIPTION:
 {job_text[:1200]}
@@ -60,22 +61,51 @@ Explain in 3 clear bullet points whether this job posting shows scam patterns.
         "temperature": 0.3
     }
 
-    response = requests.post(GROQ_URL, headers=headers, json=payload)
-    return response.json()["choices"][0]["message"]["content"]
+    try:
+        response = requests.post(
+            GROQ_URL,
+            headers=headers,
+            json=payload,
+            timeout=30
+        )
+
+        data = response.json()
+
+        # ✅ SUCCESS RESPONSE
+        if isinstance(data, dict) and "choices" in data:
+            return data["choices"][0]["message"]["content"]
+
+        # ❌ API ERROR RESPONSE
+        if isinstance(data, dict) and "error" in data:
+            return f"⚠️ AI Error: {data['error'].get('message', 'Unknown error')}"
+
+        # ❌ UNKNOWN RESPONSE
+        return "⚠️ AI returned an unexpected response. Please try again later."
+
+    except Exception as e:
+        return f"⚠️ AI request failed: {e}"
 
 # ================= STREAMLIT UI ================= #
 
-st.set_page_config(page_title="AI Job Fraud Auditor", layout="wide")
-st.title("🛡️ AI Job Fraud Auditor (Cloud-Safe Demo)")
+st.set_page_config(
+    page_title="AI Job Fraud Auditor",
+    layout="wide"
+)
+
+st.title("🛡️ AI Job Fraud Auditor (Cloud-Safe)")
 
 if not GROQ_API_KEY:
-    st.error("❌ GROQ_API_KEY missing. Add it in Manage App → Settings → Secrets")
+    st.error(
+        "❌ GROQ_API_KEY not found.\n\n"
+        "Go to **Manage App → Settings → Secrets** and add:\n"
+        "`GROQ_API_KEY = \"gsk_...\"`"
+    )
     st.stop()
 
 st.subheader("Paste Job Description")
 
 job_text = st.text_area(
-    "Paste the job description here",
+    "Enter the job description below",
     height=300
 )
 
@@ -88,8 +118,8 @@ if st.button("🚀 Run Analysis", type="primary"):
         else:
             st.success("### ✅ VERDICT: PROBABLY REAL")
 
-        with st.spinner("AI Analyst reasoning..."):
+        with st.spinner("AI analyst reasoning..."):
             reasoning = analyze_with_llm(job_text, prediction)
             st.markdown(reasoning)
     else:
-        st.warning("Please paste a job description.")
+        st.warning("Please paste a job description to analyze.")
