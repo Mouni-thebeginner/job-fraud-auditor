@@ -55,11 +55,11 @@ Explain in 3 clear bullet points whether this job posting shows scam patterns.
         "Content-Type": "application/json"
     }
 
-    payload = {
-        "model": "llama3-70b-8192",
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.3
-    }
+ payload = {
+    "model": "llama-3.1-8b-instant",
+    "messages": [{"role": "user", "content": prompt}],
+    "temperature": 0.3
+}
 
     try:
         response = requests.post(
@@ -123,3 +123,4 @@ if st.button("🚀 Run Analysis", type="primary"):
             st.markdown(reasoning)
     else:
         st.warning("Please paste a job description to analyze.")
+
