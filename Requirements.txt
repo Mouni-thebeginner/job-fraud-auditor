@@ -2,8 +2,6 @@ streamlit
 pandas
 numpy
 scikit-learn
-chromadb==0.4.22
 pytesseract
-pdf2image
 Pillow
 requests
