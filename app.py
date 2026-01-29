@@ -31,7 +31,7 @@ SCAM_KEYWORDS = [
 def rule_based_prediction(text: str) -> int:
     text = text.lower()
     matches = sum(1 for kw in SCAM_KEYWORDS if kw in text)
-    return 1 if matches >= 2 else 0   # 1 = Fraud, 0 = Probably Real
+    return 1 if matches >= 1 else 0   # 1 = Fraud, 0 = Probably Real
 
 # ================= LLM ANALYSIS (SAFE) ================= #
 
@@ -123,5 +123,6 @@ if st.button("🚀 Run Analysis", type="primary"):
             st.markdown(reasoning)
     else:
         st.warning("Please paste a job description to analyze.")
+
 
 
